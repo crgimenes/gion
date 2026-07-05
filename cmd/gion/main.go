@@ -125,32 +125,42 @@ func (a *app) Update() error {
 // the working document, so the catalog can grow without crowding the screen.
 func (a *app) sideColumn(in ui.Input) {
 	a.side.Begin(in, 16, 12)
-	a.side.SetItemWidth(sideW)
+	// Buttons come in half-width pairs so the whole command set fits the
+	// column: sound actions first, then the file operations.
+	a.side.SetItemWidth((sideW - 4) / 2)
 	if a.side.Button("s.play", "Play") {
 		a.play()
 	}
+	a.side.SameLine()
 	if a.side.Button("s.roll", "Roll") {
 		a.roll()
 	}
+	if a.side.Button("s.mutate", "Mutate") {
+		a.mutate()
+	}
+	a.side.SameLine()
 	if a.side.Button("s.wav", "Save WAV") {
 		a.save()
-	}
-	a.side.Label("effect name:")
-	a.side.TextField("s.name", &a.fxName)
-	if a.side.Button("s.add", "Add FX") {
-		a.addEffect()
 	}
 	if a.side.Button("s.open", "Open") {
 		a.openFile()
 	}
+	a.side.SameLine()
 	if a.side.Button("s.save", "Save") {
 		a.saveFile()
 	}
 	if a.side.Button("s.saveas", "Save As") {
 		a.saveFileAs()
 	}
+	a.side.SameLine()
 	if a.side.Button("s.clear", "Clear") {
 		a.clearList()
+	}
+	a.side.SetItemWidth(sideW)
+	a.side.Label("effect name:")
+	a.side.TextField("s.name", &a.fxName)
+	if a.side.Button("s.add", "Add FX") {
+		a.addEffect()
 	}
 	a.side.Label("effects:")
 	changed, clicked, _ := a.side.ListWithIcons("s.list", a.listItems(), &a.listSel, 0)
@@ -218,6 +228,15 @@ func (a *app) roll() {
 	if a.listSel < len(presetOrder) {
 		a.params = gion.Presets[presetOrder[a.listSel]](a.seed)
 	}
+	a.rebuild()
+	a.play()
+}
+
+// mutate replaces the current sound with a small deterministic sibling — the
+// exploration move: keep what the sound is, drift how it sounds.
+func (a *app) mutate() {
+	a.seed++
+	a.params = gion.Mutate(a.params, a.seed)
 	a.rebuild()
 	a.play()
 }

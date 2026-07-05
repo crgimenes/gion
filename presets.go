@@ -134,6 +134,45 @@ func Blip(seed int64) Params {
 	}
 }
 
+// Mutate returns a deterministic sibling of p: each non-zero numeric field
+// has a coin-flip chance of drifting up to ±10%, relative to its value, so
+// the sound keeps its character — a mutated laser is still that laser. Fields
+// that are off (zero) stay off, and the wave, bit depth, gain and noise seed
+// are left alone. The same p and seed always produce the same sibling.
+//
+// Besides sculpting sounds in the editor, this is useful at runtime: mutate a
+// base effect with a varying seed and repeated explosions, hits or footsteps
+// stop sounding identical, at zero asset cost.
+func Mutate(p Params, seed int64) Params {
+	rng := presetRNG(seed)
+	drift := func(v *float64) {
+		if *v == 0 {
+			return
+		}
+		if rng.Float64() < 0.5 {
+			return
+		}
+		*v *= 1 + (rng.Float64()*2-1)*0.1
+	}
+	drift(&p.Freq)
+	drift(&p.FreqSlide)
+	drift(&p.FreqLimit)
+	drift(&p.Attack)
+	drift(&p.Sustain)
+	drift(&p.Punch)
+	drift(&p.Decay)
+	drift(&p.Duty)
+	if p.Duty > 0.95 {
+		p.Duty = 0.95 // keep the pulse audible; Render treats >1 as the default
+	}
+	drift(&p.Vibrato)
+	drift(&p.VibratoHz)
+	drift(&p.ArpMult)
+	drift(&p.ArpDelay)
+	drift(&p.LowPass)
+	return p
+}
+
 // presetRNG is the deterministic source behind a preset variation.
 func presetRNG(seed int64) *rand.Rand {
 	// #nosec G115 G404 -- reinterpreting the seed's bits is the intent, and the

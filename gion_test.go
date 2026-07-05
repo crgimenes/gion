@@ -126,3 +126,31 @@ func TestWriteWAVHeader(t *testing.T) {
 		t.Fatalf("second sample: got %d, want 100", got)
 	}
 }
+
+func TestMutateIsDeterministicAndKeepsCharacter(t *testing.T) {
+	p := Laser(5)
+	a := Mutate(p, 9)
+	b := Mutate(p, 9)
+	if a != b {
+		t.Fatal("the same seed should give the same sibling")
+	}
+	if a == Mutate(p, 10) {
+		t.Fatal("different seeds should give different siblings")
+	}
+	if a.Wave != p.Wave || a.Gain != p.Gain || a.Seed != p.Seed {
+		t.Fatalf("wave/gain/seed must not mutate: %+v", a)
+	}
+	if (a.FreqSlide < 0) != (p.FreqSlide < 0) {
+		t.Fatalf("relative drift must keep the slide direction: %v vs %v", a.FreqSlide, p.FreqSlide)
+	}
+}
+
+func TestMutateLeavesZeroFieldsOff(t *testing.T) {
+	p := Params{Wave: Square, Freq: 500, Sustain: 0.1, Gain: 0.5}
+	for seed := int64(1); seed <= 20; seed++ {
+		m := Mutate(p, seed)
+		if m.Vibrato != 0 || m.ArpMult != 0 || m.LowPass != 0 || m.Attack != 0 {
+			t.Fatalf("seed %d: an off field was switched on: %+v", seed, m)
+		}
+	}
+}
