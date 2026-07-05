@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Working notes (durable knowledge lives in the wiki)
+TODO.md

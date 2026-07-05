@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/crgimenes/gion"
+	fx "github.com/crgimenes/gion/effects"
 	ui "github.com/crgimenes/minigui"
 	"github.com/crgimenes/native/filedialog"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -68,7 +69,7 @@ type app struct {
 
 	// Effect list: the built-in families first, then the working document —
 	// the user effects saved whole to a .filo file via the native dialogs.
-	effects  []fxEntry
+	effects  []fx.Entry
 	listSel  int
 	fxName   string
 	savePath string // current document; empty until the first save or open
@@ -181,7 +182,7 @@ func (a *app) listItems() []string {
 	items := make([]string, 0, len(presetOrder)+len(a.effects))
 	items = append(items, presetOrder...)
 	for _, e := range a.effects {
-		items = append(items, e.name)
+		items = append(items, e.Name)
 	}
 	return items
 }
@@ -203,8 +204,8 @@ func (a *app) selectEffect(i int) {
 	if j >= len(a.effects) {
 		return
 	}
-	a.preset = a.effects[j].name
-	a.params = a.effects[j].params
+	a.preset = a.effects[j].Name
+	a.params = a.effects[j].Params
 	a.rebuild()
 	a.play()
 }
@@ -229,7 +230,7 @@ func (a *app) addEffect() {
 	if name == "" {
 		name = fmt.Sprintf("%s-%d", a.preset, a.seed)
 	}
-	a.effects = append(a.effects, fxEntry{name: name, params: a.params})
+	a.effects = append(a.effects, fx.Entry{Name: name, Params: a.params})
 	a.listSel = len(presetOrder) + len(a.effects) - 1
 	a.preset = name
 }
@@ -261,8 +262,8 @@ func (a *app) openFile() {
 	var path string
 	ebiten.RunOnMainThread(func() {
 		path = filedialog.Open(filedialog.Options{
-			Title:      "Open effects (" + fileExt + ")",
-			Extensions: []string{fileExt[1:]},
+			Title:      "Open effects (" + fx.Ext + ")",
+			Extensions: []string{fx.Ext[1:]},
 		})
 	})
 	if path == "" {
@@ -275,7 +276,7 @@ func (a *app) openFile() {
 // (which is how an OS file association hands over a double-clicked file), or
 // anywhere else the path is known.
 func (a *app) openPath(path string) {
-	list, err := readEffectsFile(path)
+	list, err := fx.Load(path)
 	if err != nil {
 		a.err = err.Error()
 		return
@@ -293,7 +294,7 @@ func (a *app) openDropped(files fs.FS) {
 		return
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), fileExt) {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), fx.Ext) {
 			continue
 		}
 		src, err := fs.ReadFile(files, e.Name())
@@ -301,7 +302,7 @@ func (a *app) openDropped(files fs.FS) {
 			a.err = err.Error()
 			return
 		}
-		list, err := parseLibrary(string(src))
+		list, err := fx.Parse(string(src))
 		if err != nil {
 			a.err = err.Error()
 			return
@@ -315,15 +316,15 @@ func (a *app) openDropped(files fs.FS) {
 
 // adoptList installs a loaded document and shows its first effect, without
 // playing anything: opening a file should be silent.
-func (a *app) adoptList(list []fxEntry) {
+func (a *app) adoptList(list []fx.Entry) {
 	a.effects = list
 	a.err = ""
 	if len(list) == 0 {
 		return
 	}
 	a.listSel = len(presetOrder)
-	a.preset = list[0].name
-	a.params = list[0].params
+	a.preset = list[0].Name
+	a.params = list[0].Params
 	a.rebuild()
 }
 
@@ -334,7 +335,7 @@ func (a *app) saveFile() {
 		a.saveFileAs()
 		return
 	}
-	err := writeEffectsFile(a.savePath, a.effects)
+	err := fx.Save(a.savePath, a.effects)
 	if err != nil {
 		a.err = err.Error()
 		return
@@ -344,25 +345,25 @@ func (a *app) saveFile() {
 
 // saveFileAs asks for a path in the native dialog and writes the whole list.
 func (a *app) saveFileAs() {
-	name := "effects" + fileExt
+	name := "effects" + fx.Ext
 	if a.savePath != "" {
 		name = filepath.Base(a.savePath)
 	}
 	var path string
 	ebiten.RunOnMainThread(func() {
 		path = filedialog.Save(filedialog.Options{
-			Title:      "Save effects (" + fileExt + ")",
+			Title:      "Save effects (" + fx.Ext + ")",
 			Filename:   name,
-			Extensions: []string{fileExt[1:]},
+			Extensions: []string{fx.Ext[1:]},
 		})
 	})
 	if path == "" {
 		return // cancelled
 	}
-	if !strings.HasSuffix(path, fileExt) {
-		path += fileExt
+	if !strings.HasSuffix(path, fx.Ext) {
+		path += fx.Ext
 	}
-	err := writeEffectsFile(path, a.effects)
+	err := fx.Save(path, a.effects)
 	if err != nil {
 		a.err = err.Error()
 		return
@@ -605,6 +606,7 @@ func main() {
 
 	ebiten.SetWindowSize(winW, winH)
 	ebiten.SetWindowTitle("gion")
+	setWindowIcon()
 	err := ebiten.RunGame(a)
 	if err != nil {
 		panic(err)

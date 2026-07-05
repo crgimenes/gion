@@ -1,4 +1,19 @@
-package main
+// Package effects reads and writes gion effects documents. A document is a
+// filo script with the extension Ext where each line declares one named
+// effect:
+//
+//	(effect "coin" (tuple "Freq" 1100) (tuple "Decay" 0.25) (tuple "Gain" 0.5))
+//
+// The gion app edits these documents; a game consumes them with Load (or
+// Parse over an embedded file) and renders each Entry's Params at runtime:
+//
+//	list, err := effects.Load("sounds.gion")
+//	samples := list[0].Params.Render(gion.DefaultRate)
+//
+// Zero-valued fields are omitted on write and default to zero on read, so a
+// document round-trips exactly; unknown fields are ignored on read, so an
+// older binary still loads a document written by a newer one.
+package effects
 
 import (
 	"context"
@@ -11,46 +26,39 @@ import (
 	"github.com/crgimenes/gion"
 )
 
-// fileExt is the effects document extension. The content is the filo
-// language (like kutta's .afoil scenes), but the specific extension names the
-// document type, so the OS can associate it with the app.
-const fileExt = ".gion"
+// Ext is the document extension. The content is the filo language (like
+// kutta's .afoil scenes), but the specific extension names the document type,
+// so the OS can associate it with the app.
+const Ext = ".gion"
 
-// fxEntry is one effect in the working list. The list is the document: it is
-// saved whole to a file the consuming game evaluates to get every effect by
-// name.
-type fxEntry struct {
-	name   string
-	params gion.Params
+// Entry is one named effect in a document.
+type Entry struct {
+	Name   string
+	Params gion.Params
 }
 
-// readEffectsFile loads a saved effects list.
-func readEffectsFile(path string) ([]fxEntry, error) {
-	// #nosec G304 G703 -- the path is the user's own: the native dialog or the
-	// document argument on the command line.
+// Load reads and parses the document at path.
+func Load(path string) ([]Entry, error) {
+	// #nosec G304 G703 -- the path is the caller's own document.
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return parseLibrary(string(src))
+	return Parse(string(src))
 }
 
-// writeEffectsFile saves the whole effects list, one form per line.
-func writeEffectsFile(path string, effects []fxEntry) error {
-	var b strings.Builder
-	for _, e := range effects {
-		b.WriteString(effectLine(e.name, e.params))
-	}
-	return os.WriteFile(path, []byte(b.String()), 0o600) // #nosec G304 -- user-chosen save path
+// Save writes the whole document, one form per line.
+func Save(path string, entries []Entry) error {
+	return os.WriteFile(path, []byte(Format(entries)), 0o600) // #nosec G304 -- caller-chosen path
 }
 
-// parseLibrary evaluates the file as a filo script: each line is an
-// (effect "name" (tuple "Field" value) ...) form appending one entry.
-func parseLibrary(src string) ([]fxEntry, error) {
+// Parse evaluates a document as a filo script: each (effect ...) form appends
+// one entry.
+func Parse(src string) ([]Entry, error) {
 	if strings.TrimSpace(src) == "" {
-		return nil, nil // filo rejects empty scripts; an empty list is fine
+		return nil, nil // filo rejects empty scripts; an empty document is fine
 	}
-	var out []fxEntry
+	var out []Entry
 	f := filo.New()
 	defer f.Close()
 	err := f.RegisterBuiltin("effect", func(_ context.Context, args []filo.Value) (filo.Value, error) {
@@ -71,11 +79,19 @@ func parseLibrary(src string) ([]fxEntry, error) {
 	return out, nil
 }
 
+// Format serializes a document, one form per line.
+func Format(entries []Entry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(line(e))
+	}
+	return b.String()
+}
+
 // parseEffect decodes one builtin call: the name, then field tuples in any
-// order. Unknown fields are skipped, so an older binary still reads a file
-// written by a newer one.
-func parseEffect(args []filo.Value) (fxEntry, error) {
-	var e fxEntry
+// order.
+func parseEffect(args []filo.Value) (Entry, error) {
+	var e Entry
 	if len(args) == 0 {
 		return e, fmt.Errorf("effect: missing name")
 	}
@@ -83,7 +99,7 @@ func parseEffect(args []filo.Value) (fxEntry, error) {
 	if err != nil {
 		return e, fmt.Errorf("effect name: %w", err)
 	}
-	e.name = name
+	e.Name = name
 	for _, v := range args[1:] {
 		kv, err := v.AsTuple()
 		if err != nil {
@@ -100,7 +116,7 @@ func parseEffect(args []filo.Value) (fxEntry, error) {
 		if err != nil {
 			return e, fmt.Errorf("effect %q, field %s: %w", name, key, err)
 		}
-		setParam(&e.params, key, num)
+		setParam(&e.Params, key, num)
 	}
 	return e, nil
 }
@@ -145,16 +161,17 @@ func setParam(p *gion.Params, key string, v float64) {
 	}
 }
 
-// effectLine serializes one effect as a single filo form. Zero fields are
-// omitted: absent means the zero value on load, so the round trip is exact.
-func effectLine(name string, p gion.Params) string {
+// line serializes one effect as a single filo form. Zero fields are omitted:
+// absent means the zero value on load, so the round trip is exact.
+func line(e Entry) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "(effect %q", cleanName(name))
+	fmt.Fprintf(&b, "(effect %q", cleanName(e.Name))
 	field := func(key string, v float64) {
 		if v != 0 {
 			fmt.Fprintf(&b, " (tuple %q %s)", key, strconv.FormatFloat(v, 'g', -1, 64))
 		}
 	}
+	p := e.Params
 	field("Wave", float64(p.Wave))
 	field("Freq", p.Freq)
 	field("FreqSlide", p.FreqSlide)

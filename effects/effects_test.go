@@ -1,4 +1,4 @@
-package main
+package effects
 
 import (
 	"path/filepath"
@@ -8,7 +8,7 @@ import (
 	"github.com/crgimenes/gion"
 )
 
-func TestEffectLineRoundTrip(t *testing.T) {
+func TestFormatParseRoundTrip(t *testing.T) {
 	p := gion.Params{
 		Wave:      gion.Noise,
 		Freq:      1234.5,
@@ -28,54 +28,54 @@ func TestEffectLineRoundTrip(t *testing.T) {
 		Gain:      0.6,
 		Seed:      42,
 	}
-	got, err := parseLibrary(effectLine("boom \"big\"", p))
+	got, err := Parse(Format([]Entry{{Name: "boom \"big\"", Params: p}}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("entries: %d", len(got))
 	}
-	if got[0].name != "boom 'big'" {
-		t.Fatalf("name: %q", got[0].name)
+	if got[0].Name != "boom 'big'" {
+		t.Fatalf("name: %q", got[0].Name)
 	}
-	if got[0].params != p {
-		t.Fatalf("params round trip:\n got %+v\nwant %+v", got[0].params, p)
+	if got[0].Params != p {
+		t.Fatalf("params round trip:\n got %+v\nwant %+v", got[0].Params, p)
 	}
 }
 
-func TestParseLibraryMultipleAndUnknownField(t *testing.T) {
-	src := effectLine("a", gion.Params{Freq: 100, Gain: 0.5}) +
+func TestParseMultipleAndUnknownField(t *testing.T) {
+	src := Format([]Entry{{Name: "a", Params: gion.Params{Freq: 100, Gain: 0.5}}}) +
 		"(effect \"b\" (tuple \"Freq\" 200) (tuple \"FutureField\" 1))\n"
-	got, err := parseLibrary(src)
+	got, err := Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("entries: %d", len(got))
 	}
-	if got[1].name != "b" || got[1].params.Freq != 200 {
+	if got[1].Name != "b" || got[1].Params.Freq != 200 {
 		t.Fatalf("second entry: %+v", got[1])
 	}
 }
 
-func TestParseLibraryRejectsMalformedField(t *testing.T) {
-	_, err := parseLibrary("(effect \"x\" (tuple \"Freq\"))\n")
+func TestParseRejectsMalformedField(t *testing.T) {
+	_, err := Parse("(effect \"x\" (tuple \"Freq\"))\n")
 	if err == nil || !strings.Contains(err.Error(), "x") {
 		t.Fatalf("want a field arity error naming the effect, got %v", err)
 	}
 }
 
-func TestEffectsFileRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "effects.filo")
-	list := []fxEntry{
-		{name: "coin", params: gion.Params{Wave: gion.Square, Freq: 1000, Gain: 0.5}},
-		{name: "boom", params: gion.Params{Wave: gion.Noise, Decay: 0.8, Gain: 0.6, Seed: 7}},
+func TestLoadSaveRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects"+Ext)
+	list := []Entry{
+		{Name: "coin", Params: gion.Params{Wave: gion.Square, Freq: 1000, Gain: 0.5}},
+		{Name: "boom", Params: gion.Params{Wave: gion.Noise, Decay: 0.8, Gain: 0.6, Seed: 7}},
 	}
-	err := writeEffectsFile(path, list)
+	err := Save(path, list)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := readEffectsFile(path)
+	got, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +84,11 @@ func TestEffectsFileRoundTrip(t *testing.T) {
 	}
 
 	// An emptied list saves to an empty file that loads back as empty.
-	err = writeEffectsFile(path, nil)
+	err = Save(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err = readEffectsFile(path)
+	got, err = Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +97,8 @@ func TestEffectsFileRoundTrip(t *testing.T) {
 	}
 }
 
-func TestParseLibraryEmpty(t *testing.T) {
-	got, err := parseLibrary("")
+func TestParseEmpty(t *testing.T) {
+	got, err := Parse("")
 	if err != nil {
 		t.Fatal(err)
 	}
