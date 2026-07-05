@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/crgimenes/filo v0.0.15
-	github.com/crgimenes/minigui v0.1.7
+	github.com/crgimenes/minigui v0.1.8
 	github.com/crgimenes/native v0.1.3
 	github.com/hajimehoshi/ebiten/v2 v2.10.0-alpha.11.0.20260511153605-ac9d235653cc
 )
