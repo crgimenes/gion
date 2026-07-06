@@ -4,11 +4,7 @@
 
 8-bit sounds and music for games.
 
-gion (擬音, Japanese for "imitated sound") makes retro game audio in two
-forms. It is a workbench where you sculpt sound effects and chiptune loops by
-ear, and it is a Go library your game imports to regenerate that exact audio
-at runtime. Inspired by [sfxr](https://www.drpetter.se/project_sfxr.html) and
-[bfxr](https://github.com/increpare/bfxr), written from scratch in Go, not a
+gion (擬音) makes retro game audio in two forms. It is a workbench where you sculpt sound effects and chiptune loops by ear, and it is a Go library your game imports to regenerate that exact audio at runtime. Inspired by [sfxr](https://www.drpetter.se/project_sfxr.html) and [bfxr](https://github.com/increpare/bfxr), written from scratch in Go, not a
 port.
 
 The premise: a sound is not a file; it is a small deterministic recipe. The
@@ -160,8 +156,16 @@ A document is a Filo script. Each line declares one named entry, and only
 non-default fields are written:
 
 ```lisp
-(effect "coin" (tuple "Freq" 1100) (tuple "ArpMult" 1.5) (tuple "Decay" 0.25) (tuple "Gain" 0.5))
-(music "stage 1" (tuple "Mood" 4) (tuple "Seed" 77) (tuple "Mute" 3) (tuple "Gain" 0.6))
+(effect "coin"
+  (tuple "Freq" 1100)
+  (tuple "ArpMult" 1.5)
+  (tuple "Decay" 0.25)
+  (tuple "Gain" 0.5))
+(music "stage 1"
+  (tuple "Mood" 4)
+  (tuple "Seed" 77)
+  (tuple "Mute" 3)
+  (tuple "Gain" 0.6))
 ```
 
 Unknown fields are ignored on load, so an older binary reads documents
