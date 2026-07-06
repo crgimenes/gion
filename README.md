@@ -152,7 +152,7 @@ It also renders single presets (`gion-render laser`) and standalone music
 
 ## The `.gion` format
 
-A document is a Filo script. Each line declares one named entry, and only
+A document is a [Filo](https://github.com/crgimenes/filo) script. Each line declares one named entry, and only
 non-default fields are written:
 
 ```lisp
