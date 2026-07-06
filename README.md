@@ -1,6 +1,8 @@
-# gion — 8-bit sounds and music for games
+# gion
 
 ![gion](assets/demo.gif)
+
+8-bit sounds and music for games.
 
 gion (擬音, Japanese for "imitated sound") makes retro game audio in two
 forms. It is a workbench where you sculpt sound effects and chiptune loops by
@@ -9,8 +11,8 @@ at runtime. Inspired by [sfxr](https://www.drpetter.se/project_sfxr.html) and
 [bfxr](https://github.com/increpare/bfxr), written from scratch in Go, not a
 port.
 
-The premise: a sound is not a file, it is a small deterministic recipe. The
-same seed produces the same samples forever, on every platform. Ship the
+The premise: a sound is not a file; it is a small deterministic recipe. The
+same seed produces the same samples on every platform. Forever. Ship the
 recipe and render on the fly, or bake WAVs at build time. Both work; pick per
 game.
 
@@ -27,7 +29,8 @@ low-pass, bit crush.
 
 Music comes as perfectly-looping chiptune tracks in six moods: upbeat,
 heroic, dark, chill, battle, boss. Each roll picks its own tempo, key,
-timbre, chord progression, song form and grooves, all derived from the seed.
+timbre, chord progression, song form and grooves. All of it derives from
+the seed.
 A per-instrument mixer and mute switches set the arrangement. A track often
 sounds better with a voice removed; gion treats that as an arrangement
 decision, saves it in the document, and honors it everywhere the track is
@@ -38,8 +41,8 @@ the sliders live while you drag. Spin it with the mouse, or switch to the
 plain 2D waveform.
 
 Everything lands in a `.gion` document: a small
-[Filo](https://github.com/crgimenes/filo) s-expression file, one named effect
-or track per line, friendly to git diffs and hand edits.
+[Filo](https://github.com/crgimenes/filo) s-expression file with one named
+effect or track per line. It diffs cleanly in git and survives hand edits.
 
 ## Download (no Go required)
 
@@ -129,13 +132,12 @@ doc, err := effects.Load("sounds.gion")
 samples := doc.Effects[0].Params.Render(gion.DefaultRate) // []int16, mono
 ```
 
-`effects.Parse` does the same over a `//go:embed`-ed document, which keeps
-the single-executable property.
+`effects.Parse` does the same over a `//go:embed`-ed document. The
+single-executable property survives.
 
-There is a trick worth knowing: `gion.Mutate` derives a sibling of an effect,
-same character, slightly different body. Mutate a base explosion with a
-varying seed and repeated explosions stop sounding identical, at zero asset
-cost:
+`gion.Mutate` derives a sibling of an effect: same character, slightly
+different body. Mutate a base explosion with a varying seed and repeated
+explosions stop sounding identical. The asset cost is zero:
 
 ```go
 boom := doc.Effects[0].Params
@@ -164,7 +166,7 @@ non-default fields are written:
 
 Unknown fields are ignored on load, so an older binary reads documents
 written by a newer one. That `Mute 3` is an arrangement decision: this track
-plays without its lead, everywhere.
+plays without its lead anywhere it is rendered.
 
 ## License
 
