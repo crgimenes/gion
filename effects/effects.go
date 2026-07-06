@@ -1,14 +1,16 @@
-// Package effects reads and writes gion effects documents. A document is a
-// filo script with the extension Ext where each line declares one named
-// effect:
+// Package effects reads and writes gion documents. A document is a filo
+// script with the extension Ext where each line declares one named effect or
+// one named music track:
 //
 //	(effect "coin" (tuple "Freq" 1100) (tuple "Decay" 0.25) (tuple "Gain" 0.5))
+//	(music "stage 1" (tuple "Mood" 4) (tuple "Seed" 7) (tuple "Gain" 0.6))
 //
 // The gion app edits these documents; a game consumes them with Load (or
-// Parse over an embedded file) and renders each Entry's Params at runtime:
+// Parse over an embedded file) and renders each entry's Params at runtime:
 //
-//	list, err := effects.Load("sounds.gion")
-//	samples := list[0].Params.Render(gion.DefaultRate)
+//	doc, err := effects.Load("sounds.gion")
+//	hit := doc.Effects[0].Params.Render(gion.DefaultRate)
+//	bgm := doc.Music[0].Params.Render(gion.DefaultRate)
 //
 // Zero-valued fields are omitted on write and default to zero on read, so a
 // document round-trips exactly; unknown fields are ignored on read, so an
@@ -24,6 +26,7 @@ import (
 
 	"github.com/crgimenes/filo"
 	"github.com/crgimenes/gion"
+	"github.com/crgimenes/gion/music"
 )
 
 // Ext is the document extension. The content is the filo language (like
@@ -37,28 +40,45 @@ type Entry struct {
 	Params gion.Params
 }
 
+// MusicEntry is one named music track in a document.
+type MusicEntry struct {
+	Name   string
+	Params music.Params
+}
+
+// Document is the full contents of a .gion file.
+type Document struct {
+	Effects []Entry
+	Music   []MusicEntry
+}
+
+// Empty reports whether the document has no entries at all.
+func (d Document) Empty() bool {
+	return len(d.Effects) == 0 && len(d.Music) == 0
+}
+
 // Load reads and parses the document at path.
-func Load(path string) ([]Entry, error) {
+func Load(path string) (Document, error) {
 	// #nosec G304 G703 -- the path is the caller's own document.
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return Document{}, err
 	}
 	return Parse(string(src))
 }
 
 // Save writes the whole document, one form per line.
-func Save(path string, entries []Entry) error {
-	return os.WriteFile(path, []byte(Format(entries)), 0o600) // #nosec G304 -- caller-chosen path
+func Save(path string, doc Document) error {
+	return os.WriteFile(path, []byte(Format(doc)), 0o600) // #nosec G304 -- caller-chosen path
 }
 
-// Parse evaluates a document as a filo script: each (effect ...) form appends
-// one entry.
-func Parse(src string) ([]Entry, error) {
+// Parse evaluates a document as a filo script: each (effect ...) or
+// (music ...) form appends one entry.
+func Parse(src string) (Document, error) {
+	var doc Document
 	if strings.TrimSpace(src) == "" {
-		return nil, nil // filo rejects empty scripts; an empty document is fine
+		return doc, nil // filo rejects empty scripts; an empty document is fine
 	}
-	var out []Entry
 	f := filo.New()
 	defer f.Close()
 	err := f.RegisterBuiltin("effect", func(_ context.Context, args []filo.Value) (filo.Value, error) {
@@ -66,24 +86,39 @@ func Parse(src string) ([]Entry, error) {
 		if err != nil {
 			return filo.VBool(false), err
 		}
-		out = append(out, e)
+		doc.Effects = append(doc.Effects, e)
 		return filo.VBool(true), nil
 	})
 	if err != nil {
-		return nil, err
+		return doc, err
+	}
+	err = f.RegisterBuiltin("music", func(_ context.Context, args []filo.Value) (filo.Value, error) {
+		m, err := parseMusic(args)
+		if err != nil {
+			return filo.VBool(false), err
+		}
+		doc.Music = append(doc.Music, m)
+		return filo.VBool(true), nil
+	})
+	if err != nil {
+		return doc, err
 	}
 	err = f.DoString(src)
 	if err != nil {
-		return nil, err
+		return doc, err
 	}
-	return out, nil
+	return doc, nil
 }
 
-// Format serializes a document, one form per line.
-func Format(entries []Entry) string {
+// Format serializes a document, one form per line: effects first, then the
+// music tracks.
+func Format(doc Document) string {
 	var b strings.Builder
-	for _, e := range entries {
+	for _, e := range doc.Effects {
 		b.WriteString(line(e))
+	}
+	for _, m := range doc.Music {
+		b.WriteString(musicLine(m))
 	}
 	return b.String()
 }
@@ -189,6 +224,89 @@ func line(e Entry) string {
 	field("Bits", float64(p.Bits))
 	field("Gain", p.Gain)
 	field("Seed", float64(p.Seed))
+	b.WriteString(")\n")
+	return b.String()
+}
+
+// parseMusic decodes one music builtin call: the name, then field tuples in
+// any order.
+func parseMusic(args []filo.Value) (MusicEntry, error) {
+	var m MusicEntry
+	if len(args) == 0 {
+		return m, fmt.Errorf("music: missing name")
+	}
+	name, err := args[0].AsString()
+	if err != nil {
+		return m, fmt.Errorf("music name: %w", err)
+	}
+	m.Name = name
+	for _, v := range args[1:] {
+		kv, err := v.AsTuple()
+		if err != nil {
+			return m, fmt.Errorf("music %q: %w", name, err)
+		}
+		if len(kv) != 2 {
+			return m, fmt.Errorf("music %q: field tuples take a name and a value", name)
+		}
+		key, err := kv[0].AsString()
+		if err != nil {
+			return m, fmt.Errorf("music %q: %w", name, err)
+		}
+		num, err := kv[1].AsNumber()
+		if err != nil {
+			return m, fmt.Errorf("music %q, field %s: %w", name, key, err)
+		}
+		setMusicParam(&m.Params, key, num)
+	}
+	return m, nil
+}
+
+// setMusicParam maps a serialized field name onto music.Params.
+func setMusicParam(p *music.Params, key string, v float64) {
+	switch key {
+	case "Mood":
+		p.Mood = music.Mood(int(v))
+	case "Seed":
+		p.Seed = int64(v)
+	case "Tempo":
+		p.Tempo = v
+	case "Bars":
+		p.Bars = int(v)
+	case "Root":
+		p.Root = v
+	case "Gain":
+		p.Gain = v
+	case "Mute":
+		p.Mute = int(v)
+	case "LeadVol":
+		p.LeadVol = v
+	case "BassVol":
+		p.BassVol = v
+	case "DrumVol":
+		p.DrumVol = v
+	}
+}
+
+// musicLine serializes one track as a single filo form, zero fields omitted.
+func musicLine(m MusicEntry) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "(music %q", cleanName(m.Name))
+	field := func(key string, v float64) {
+		if v != 0 {
+			fmt.Fprintf(&b, " (tuple %q %s)", key, strconv.FormatFloat(v, 'g', -1, 64))
+		}
+	}
+	p := m.Params
+	field("Mood", float64(p.Mood))
+	field("Seed", float64(p.Seed))
+	field("Tempo", p.Tempo)
+	field("Bars", float64(p.Bars))
+	field("Root", p.Root)
+	field("Gain", p.Gain)
+	field("Mute", float64(p.Mute))
+	field("LeadVol", p.LeadVol)
+	field("BassVol", p.BassVol)
+	field("DrumVol", p.DrumVol)
 	b.WriteString(")\n")
 	return b.String()
 }

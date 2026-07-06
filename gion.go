@@ -35,6 +35,16 @@ const (
 // stream ("gion" in ASCII).
 const pcgStream = 0x67696f6e
 
+// scramble spreads the seed across the state space with a splitmix64
+// finalizer: PCG's first draws correlate badly between small sequential
+// seeds, which made consecutive rolls sound alike.
+func scramble(seed int64) uint64 {
+	z := uint64(seed) + 0x9E3779B97F4A7C15 // #nosec G115 -- bit reinterpretation is the intent
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
+	return z ^ (z >> 31)
+}
+
 // Params describes one sound effect. The zero value renders silence; start
 // from a preset and tweak. All fields are plain data, so a Params can be
 // serialized (e.g. JSON) and shipped with a game.
@@ -83,10 +93,9 @@ func (p Params) Render(rate int) []int16 {
 	n := int(total * float64(rate))
 	out := make([]int16, 0, n)
 
-	// #nosec G115 G404 -- reinterpreting the seed's bits is the intent, and the
-	// deterministic generator is the feature (same Params, same sound), not a
-	// security boundary.
-	rng := rand.New(rand.NewPCG(uint64(p.Seed), pcgStream))
+	// #nosec G404 -- the deterministic generator is the feature (same Params,
+	// same sound), not a security boundary.
+	rng := rand.New(rand.NewPCG(scramble(p.Seed), pcgStream))
 	dt := 1 / float64(rate)
 	duty := p.Duty
 	if duty <= 0 || duty > 1 {

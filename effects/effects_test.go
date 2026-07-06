@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/crgimenes/gion"
+	"github.com/crgimenes/gion/music"
 )
 
 func TestFormatParseRoundTrip(t *testing.T) {
@@ -28,10 +29,11 @@ func TestFormatParseRoundTrip(t *testing.T) {
 		Gain:      0.6,
 		Seed:      42,
 	}
-	got, err := Parse(Format([]Entry{{Name: "boom \"big\"", Params: p}}))
+	doc, err := Parse(Format(Document{Effects: []Entry{{Name: "boom \"big\"", Params: p}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := doc.Effects
 	if len(got) != 1 {
 		t.Fatalf("entries: %d", len(got))
 	}
@@ -44,17 +46,17 @@ func TestFormatParseRoundTrip(t *testing.T) {
 }
 
 func TestParseMultipleAndUnknownField(t *testing.T) {
-	src := Format([]Entry{{Name: "a", Params: gion.Params{Freq: 100, Gain: 0.5}}}) +
+	src := Format(Document{Effects: []Entry{{Name: "a", Params: gion.Params{Freq: 100, Gain: 0.5}}}}) +
 		"(effect \"b\" (tuple \"Freq\" 200) (tuple \"FutureField\" 1))\n"
-	got, err := Parse(src)
+	doc, err := Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("entries: %d", len(got))
+	if len(doc.Effects) != 2 {
+		t.Fatalf("entries: %d", len(doc.Effects))
 	}
-	if got[1].Name != "b" || got[1].Params.Freq != 200 {
-		t.Fatalf("second entry: %+v", got[1])
+	if doc.Effects[1].Name != "b" || doc.Effects[1].Params.Freq != 200 {
+		t.Fatalf("second entry: %+v", doc.Effects[1])
 	}
 }
 
@@ -67,11 +69,16 @@ func TestParseRejectsMalformedField(t *testing.T) {
 
 func TestLoadSaveRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "effects"+Ext)
-	list := []Entry{
-		{Name: "coin", Params: gion.Params{Wave: gion.Square, Freq: 1000, Gain: 0.5}},
-		{Name: "boom", Params: gion.Params{Wave: gion.Noise, Decay: 0.8, Gain: 0.6, Seed: 7}},
+	doc := Document{
+		Effects: []Entry{
+			{Name: "coin", Params: gion.Params{Wave: gion.Square, Freq: 1000, Gain: 0.5}},
+			{Name: "boom", Params: gion.Params{Wave: gion.Noise, Decay: 0.8, Gain: 0.6, Seed: 7}},
+		},
+		Music: []MusicEntry{
+			{Name: "stage 1", Params: music.Params{Mood: music.Battle, Seed: 7, Tempo: 180, Bars: 8, Gain: 0.6, Mute: music.MuteHat | music.MuteEcho}},
+		},
 	}
-	err := Save(path, list)
+	err := Save(path, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +86,15 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != list[0] || got[1] != list[1] {
-		t.Fatalf("round trip:\n got %+v\nwant %+v", got, list)
+	if len(got.Effects) != 2 || got.Effects[0] != doc.Effects[0] || got.Effects[1] != doc.Effects[1] {
+		t.Fatalf("effects round trip:\n got %+v\nwant %+v", got.Effects, doc.Effects)
+	}
+	if len(got.Music) != 1 || got.Music[0] != doc.Music[0] {
+		t.Fatalf("music round trip:\n got %+v\nwant %+v", got.Music, doc.Music)
 	}
 
-	// An emptied list saves to an empty file that loads back as empty.
-	err = Save(path, nil)
+	// An emptied document saves to an empty file that loads back as empty.
+	err = Save(path, Document{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,17 +102,17 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Fatalf("cleared file: %d entries", len(got))
+	if !got.Empty() {
+		t.Fatalf("cleared file: %+v", got)
 	}
 }
 
 func TestParseEmpty(t *testing.T) {
-	got, err := Parse("")
+	doc, err := Parse("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Fatalf("entries: %d", len(got))
+	if !doc.Empty() {
+		t.Fatalf("entries: %+v", doc)
 	}
 }

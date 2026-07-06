@@ -175,10 +175,9 @@ func Mutate(p Params, seed int64) Params {
 
 // presetRNG is the deterministic source behind a preset variation.
 func presetRNG(seed int64) *rand.Rand {
-	// #nosec G115 G404 -- reinterpreting the seed's bits is the intent, and the
-	// deterministic generator is the feature (same seed, same variation), not a
-	// security boundary.
-	return rand.New(rand.NewPCG(uint64(seed), pcgStream))
+	// #nosec G404 -- the deterministic generator is the feature (same seed,
+	// same variation), not a security boundary.
+	return rand.New(rand.NewPCG(scramble(seed), pcgStream))
 }
 
 // span picks a value in [lo, hi) from the preset's random stream.

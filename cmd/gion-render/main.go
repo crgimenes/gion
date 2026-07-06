@@ -4,6 +4,7 @@
 //	gion-render [-seed N] [-rate HZ] [-o file.wav] <preset>
 //	gion-render [-seed N] [-rate HZ] [-o dir] -all
 //	gion-render [-rate HZ] [-o dir] <document.gion>
+//	gion-render [-seed N] [-rate HZ] [-o file.wav] music <mood>
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 
 	"github.com/crgimenes/gion"
 	"github.com/crgimenes/gion/effects"
+	"github.com/crgimenes/gion/music"
 )
 
 func main() {
@@ -41,9 +43,16 @@ func main() {
 		}
 		return
 	}
+	if name == "music" {
+		err := renderMusic(flag.Arg(1), *out, *seed, *rate)
+		if err != nil {
+			fatal(err)
+		}
+		return
+	}
 	fn, ok := gion.Presets[name]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "usage: gion-render [-seed N] [-rate HZ] [-o file.wav] <preset | document%s>\npresets: %v\n", effects.Ext, presetNames())
+		fmt.Fprintf(os.Stderr, "usage: gion-render [-seed N] [-rate HZ] [-o file.wav] <preset | document%s | music MOOD>\npresets: %v\nmoods: %v\n", effects.Ext, presetNames(), moodNames())
 		os.Exit(2)
 	}
 	path := *out
@@ -56,21 +65,74 @@ func main() {
 	}
 }
 
-// renderDoc bakes every effect of a document into dir (current directory when
-// empty), one WAV per entry, named after the effect.
+// renderDoc bakes every entry of a document into dir (current directory when
+// empty), one WAV per effect and per music track, named after the entry.
 func renderDoc(docPath, dir string, rate int) error {
-	list, err := effects.Load(docPath)
+	doc, err := effects.Load(docPath)
 	if err != nil {
 		return err
 	}
-	for _, e := range list {
+	for _, e := range doc.Effects {
 		path := filepath.Join(dir, safeName(e.Name)+".wav")
 		err = renderFile(path, e.Params, rate)
 		if err != nil {
 			return err
 		}
 	}
+	for _, m := range doc.Music {
+		path := filepath.Join(dir, safeName(m.Name)+".wav")
+		err = writeWAVFile(path, rate, m.Params.Render(rate))
+		if err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// renderMusic writes one looping track for the given mood and seed.
+func renderMusic(moodName, out string, seed int64, rate int) error {
+	mood, ok := music.Moods[moodName]
+	if !ok {
+		return fmt.Errorf("unknown mood %q (moods: %v)", moodName, moodNames())
+	}
+	path := out
+	if path == "" {
+		path = fmt.Sprintf("%s-%d.wav", moodName, seed)
+	}
+	p := music.New(mood, seed)
+	samples := p.Render(rate)
+	return writeWAVFile(path, rate, samples)
+}
+
+// writeWAVFile writes samples to a fresh WAV file and logs it.
+func writeWAVFile(path string, rate int, samples []int16) error {
+	// #nosec G304 G302 -- the path is the user's own -o flag, and a rendered
+	// WAV is a shareable asset, so world-readable 0644 is the right mode.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	err = gion.WriteWAV(f, rate, samples)
+	if err != nil {
+		_ = f.Close() // the write error is the one worth reporting
+		return err
+	}
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s  %.2fs\n", path, float64(len(samples))/float64(rate))
+	return nil
+}
+
+// moodNames lists the music moods in stable order.
+func moodNames() []string {
+	names := make([]string, 0, len(music.Moods))
+	for name := range music.Moods {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // safeName turns an effect name into a portable file name.
@@ -99,24 +161,7 @@ func renderAll(dir string, seed int64, rate int) error {
 }
 
 func renderFile(path string, p gion.Params, rate int) error {
-	// #nosec G304 G302 -- the path is the user's own -o flag, and a rendered
-	// WAV is a shareable asset, so world-readable 0644 is the right mode.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	samples := p.Render(rate)
-	err = gion.WriteWAV(f, rate, samples)
-	if err != nil {
-		_ = f.Close() // the write error is the one worth reporting
-		return err
-	}
-	err = f.Close()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("%s  %.2fs\n", path, float64(len(samples))/float64(rate))
-	return nil
+	return writeWAVFile(path, rate, p.Render(rate))
 }
 
 func presetNames() []string {

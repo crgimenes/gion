@@ -12,13 +12,16 @@ import (
 	"image/png"
 	"io/fs"
 	"math"
+	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/crgimenes/gion"
 	fx "github.com/crgimenes/gion/effects"
+	"github.com/crgimenes/gion/music"
 	ui "github.com/crgimenes/minigui"
 	"github.com/crgimenes/native/filedialog"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -53,6 +56,42 @@ var waves = []struct {
 	{gion.Noise, "noise"},
 }
 
+// moodOrder pairs each music mood with its toggle label, in display order.
+var moodOrder = []struct {
+	mood  music.Mood
+	label string
+}{
+	{music.Upbeat, "upbeat"},
+	{music.Heroic, "heroic"},
+	{music.Dark, "dark"},
+	{music.Chill, "chill"},
+	{music.Battle, "battle"},
+	{music.Boss, "boss"},
+}
+
+// muteOrder pairs each instrument mute bit with its toggle label.
+var muteOrder = []struct {
+	bit   int
+	label string
+}{
+	{music.MuteLead, "lead"},
+	{music.MuteEcho, "echo"},
+	{music.MuteBass, "bass"},
+	{music.MuteKick, "kick"},
+	{music.MuteSnare, "snare"},
+	{music.MuteHat, "hat"},
+}
+
+// moodLabel names a mood for status lines and generated track names.
+func moodLabel(m music.Mood) string {
+	for _, e := range moodOrder {
+		if e.mood == m {
+			return e.label
+		}
+	}
+	return "music"
+}
+
 type app struct {
 	gui  ui.Context // slider column
 	side ui.Context // command column: buttons, name field, effect list
@@ -67,12 +106,18 @@ type app struct {
 	dirty   bool // a slider moved since the last playback; play on release
 	err     string
 
-	// Effect list: the built-in families first, then the working document —
-	// the user effects saved whole to a .filo file via the native dialogs.
+	// The list: built-in families first, then the working document — the
+	// user's effects and music tracks, saved whole via the native dialogs.
 	effects  []fx.Entry
+	musics   []fx.MusicEntry
 	listSel  int
 	fxName   string
 	savePath string // current document; empty until the first save or open
+
+	// Music editing state: when musicMode is on, the parameter column edits
+	// mparams and the sound is a looping track instead of an effect.
+	musicMode bool
+	mparams   music.Params
 
 	// Visualization state: the waterfall grid and its camera.
 	view3D         bool
@@ -86,8 +131,13 @@ func (a *app) Update() error {
 	in := ui.InputFromEbiten()
 	a.sideColumn(in)
 	a.gui.Begin(in, mainX, 12)
-	a.waveRow()
-	a.sliderRows()
+	if a.musicMode {
+		a.moodRow()
+		a.musicSliderRows()
+	} else {
+		a.waveRow()
+		a.sliderRows()
+	}
 	if a.err != "" {
 		a.gui.Label("error: " + a.err)
 	}
@@ -107,14 +157,20 @@ func (a *app) Update() error {
 		a.deleteSelected()
 	}
 
-	// The view follows the sliders live; the sound only plays on release, so a
-	// drag does not spam half-finished sounds.
+	// The view follows the sliders live; the sound only plays on release, so
+	// a drag does not spam half-finished sounds. Music renders whole tracks,
+	// too heavy per frame, so it also waits for the release.
 	if a.edited {
 		a.edited = false
-		a.rebuild()
+		if !a.musicMode {
+			a.rebuild()
+		}
 	}
 	if a.dirty && !in.MouseDown {
 		a.dirty = false
+		if a.musicMode {
+			a.rebuild()
+		}
 		a.play()
 	}
 	return nil
@@ -159,9 +215,15 @@ func (a *app) sideColumn(in ui.Input) {
 	a.side.SetItemWidth(sideW)
 	a.side.Label("effect name:")
 	a.side.TextField("s.name", &a.fxName)
+	a.side.SetItemWidth((sideW - 4) / 2)
 	if a.side.Button("s.add", "Add FX") {
 		a.addEffect()
 	}
+	a.side.SameLine()
+	if a.side.Button("s.addmus", "Add Music") {
+		a.addMusic()
+	}
+	a.side.SetItemWidth(sideW)
 	a.side.Label("effects:")
 	changed, clicked, _ := a.side.ListWithIcons("s.list", a.listItems(), &a.listSel, 0)
 	if changed {
@@ -171,7 +233,11 @@ func (a *app) sideColumn(in ui.Input) {
 		// A second click on the selected entry just plays it again.
 		a.play()
 	}
-	status := fmt.Sprintf("%s %d %.2fs", a.preset, a.seed, float64(len(a.samples))/rate)
+	seed := a.seed
+	if a.musicMode {
+		seed = a.mparams.Seed
+	}
+	status := fmt.Sprintf("%s %d %.2fs", a.preset, seed, float64(len(a.samples))/rate)
 	a.side.Label(truncate(status, 25))
 	a.side.End()
 }
@@ -186,24 +252,47 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "~"
 }
 
-// listItems is the shared catalog: families to roll variations from, then the
-// user's saved effects.
+// listItems is the shared catalog: families to roll variations from, then
+// the user's saved effects, then the music tracks.
 func (a *app) listItems() []string {
-	items := make([]string, 0, len(presetOrder)+len(a.effects))
+	items := make([]string, 0, len(presetOrder)+len(a.effects)+len(a.musics))
 	items = append(items, presetOrder...)
 	for _, e := range a.effects {
 		items = append(items, e.Name)
 	}
+	for _, m := range a.musics {
+		items = append(items, "m: "+m.Name)
+	}
 	return items
 }
 
+// normalizeMix materializes the mixer defaults (0 means 1.0 in the library)
+// so the sliders show the real levels and saves store what is heard.
+func normalizeMix(p *music.Params) {
+	if p.LeadVol == 0 {
+		p.LeadVol = 1
+	}
+	if p.BassVol == 0 {
+		p.BassVol = 1
+	}
+	if p.DrumVol == 0 {
+		p.DrumVol = 1
+	}
+}
+
+// musicStart is the list index of the first music entry.
+func (a *app) musicStart() int {
+	return len(presetOrder) + len(a.effects)
+}
+
 // selectEffect loads the list selection: families re-derive from the current
-// seed, saved effects load their stored parameters verbatim.
+// seed, saved effects and tracks load their stored parameters verbatim.
 func (a *app) selectEffect(i int) {
 	if i < 0 {
 		return
 	}
 	if i < len(presetOrder) {
+		a.musicMode = false
 		a.preset = presetOrder[i]
 		a.params = gion.Presets[a.preset](a.seed)
 		a.rebuild()
@@ -211,19 +300,44 @@ func (a *app) selectEffect(i int) {
 		return
 	}
 	j := i - len(presetOrder)
-	if j >= len(a.effects) {
+	if j < len(a.effects) {
+		a.musicMode = false
+		a.preset = a.effects[j].Name
+		a.params = a.effects[j].Params
+		a.rebuild()
+		a.play()
 		return
 	}
-	a.preset = a.effects[j].Name
-	a.params = a.effects[j].Params
+	k := i - a.musicStart()
+	if k >= len(a.musics) {
+		return
+	}
+	a.musicMode = true
+	a.preset = a.musics[k].Name
+	a.mparams = a.musics[k].Params
+	normalizeMix(&a.mparams)
 	a.rebuild()
 	a.play()
 }
 
-// roll gives the current selection a fresh variation: a family re-derives all
-// parameters from the new seed, a saved effect gets a new noise seed only.
+// newSeed draws a fresh random seed. Exploration is meant to surprise — the
+// runtime seeds the global generator with real entropy, so every launch and
+// every roll differs; determinism lives in the seed VALUE, which is shown,
+// stored in documents and reproduces the exact sound anywhere.
+func newSeed() int64 {
+	return int64(mrand.IntN(1000)) // #nosec G404 -- exploration, not security
+}
+
+// roll gives the current sound a fresh variation: a family re-derives all
+// parameters from the new seed, a saved effect or track gets a new seed only.
 func (a *app) roll() {
-	a.seed++
+	a.seed = newSeed()
+	if a.musicMode {
+		a.mparams.Seed = a.seed
+		a.rebuild()
+		a.play()
+		return
+	}
 	a.params.Seed = a.seed
 	if a.listSel < len(presetOrder) {
 		a.params = gion.Presets[presetOrder[a.listSel]](a.seed)
@@ -232,44 +346,84 @@ func (a *app) roll() {
 	a.play()
 }
 
-// mutate replaces the current sound with a small deterministic sibling — the
-// exploration move: keep what the sound is, drift how it sounds.
+// mutate replaces the current effect with a small deterministic sibling —
+// the exploration move: keep what the sound is, drift how it sounds. A music
+// track has no fine-grained fields to drift, so it just rolls.
 func (a *app) mutate() {
-	a.seed++
+	if a.musicMode {
+		a.roll()
+		return
+	}
+	a.seed = newSeed()
 	a.params = gion.Mutate(a.params, a.seed)
 	a.rebuild()
 	a.play()
 }
 
-// addEffect appends the current parameters to the list under the typed name
-// (or a generated one) and selects the new entry. The list only touches disk
-// through Save/Save As.
+// addEffect appends the current effect to the list under the typed name (or
+// a generated one) and selects the new entry. The list only touches disk
+// through Save/Save As. Committing immediately auditions a mutated sibling,
+// so repeated Add clicks build a family instead of duplicating one entry.
 func (a *app) addEffect() {
 	name := strings.TrimSpace(a.fxName)
 	if name == "" {
 		name = fmt.Sprintf("%s-%d", a.preset, a.seed)
 	}
 	a.effects = append(a.effects, fx.Entry{Name: name, Params: a.params})
+	a.musicMode = false
 	a.listSel = len(presetOrder) + len(a.effects) - 1
 	a.preset = name
+
+	a.seed = newSeed()
+	a.params = gion.Mutate(a.params, a.seed)
+	a.rebuild()
+	a.play()
 }
 
-// deleteSelected removes the selected saved effect from the list; the
-// built-in families are not deletable.
+// addMusic appends the current track parameters to the list under the typed
+// name (or a generated one) and switches to music editing. What was heard is
+// exactly what is saved; the commit then rolls and auditions the next
+// candidate, so repeated Add clicks yield new tracks, not duplicates.
+func (a *app) addMusic() {
+	name := strings.TrimSpace(a.fxName)
+	if name == "" {
+		name = fmt.Sprintf("%s-%d", moodLabel(a.mparams.Mood), a.mparams.Seed)
+	}
+	a.musics = append(a.musics, fx.MusicEntry{Name: name, Params: a.mparams})
+	a.musicMode = true
+	a.listSel = a.musicStart() + len(a.musics) - 1
+	a.preset = name
+
+	a.mparams.Seed = newSeed()
+	a.rebuild()
+	a.play()
+}
+
+// deleteSelected removes the selected saved effect or track from the list;
+// the built-in families are not deletable.
 func (a *app) deleteSelected() {
 	j := a.listSel - len(presetOrder)
-	if j < 0 || j >= len(a.effects) {
+	if j < 0 {
 		return
 	}
-	a.effects = slices.Delete(a.effects, j, j+1)
-	if a.listSel >= len(presetOrder)+len(a.effects) && a.listSel > 0 {
+	if j < len(a.effects) {
+		a.effects = slices.Delete(a.effects, j, j+1)
+	} else {
+		k := j - len(a.effects)
+		if k >= len(a.musics) {
+			return
+		}
+		a.musics = slices.Delete(a.musics, k, k+1)
+	}
+	if a.listSel >= len(presetOrder)+len(a.effects)+len(a.musics) && a.listSel > 0 {
 		a.listSel--
 	}
 }
 
-// clearList drops every saved effect, keeping the current sound and file path.
+// clearList drops every saved entry, keeping the current sound and file path.
 func (a *app) clearList() {
 	a.effects = nil
+	a.musics = nil
 	if a.listSel >= len(presetOrder) {
 		a.listSel = 0
 	}
@@ -295,12 +449,12 @@ func (a *app) openFile() {
 // (which is how an OS file association hands over a double-clicked file), or
 // anywhere else the path is known.
 func (a *app) openPath(path string) {
-	list, err := fx.Load(path)
+	doc, err := fx.Load(path)
 	if err != nil {
 		a.err = err.Error()
 		return
 	}
-	a.adoptList(list)
+	a.adoptDoc(doc)
 	a.savePath = path
 	a.setTitle()
 }
@@ -321,30 +475,40 @@ func (a *app) openDropped(files fs.FS) {
 			a.err = err.Error()
 			return
 		}
-		list, err := fx.Parse(string(src))
+		doc, err := fx.Parse(string(src))
 		if err != nil {
 			a.err = err.Error()
 			return
 		}
-		a.adoptList(list)
+		a.adoptDoc(doc)
 		a.savePath = ""
 		ebiten.SetWindowTitle("gion — " + e.Name())
 		return
 	}
 }
 
-// adoptList installs a loaded document and shows its first effect, without
+// adoptDoc installs a loaded document and shows its first entry, without
 // playing anything: opening a file should be silent.
-func (a *app) adoptList(list []fx.Entry) {
-	a.effects = list
+func (a *app) adoptDoc(doc fx.Document) {
+	a.effects = doc.Effects
+	a.musics = doc.Music
 	a.err = ""
-	if len(list) == 0 {
+	if len(doc.Effects) > 0 {
+		a.musicMode = false
+		a.listSel = len(presetOrder)
+		a.preset = doc.Effects[0].Name
+		a.params = doc.Effects[0].Params
+		a.rebuild()
 		return
 	}
-	a.listSel = len(presetOrder)
-	a.preset = list[0].Name
-	a.params = list[0].Params
-	a.rebuild()
+	if len(doc.Music) > 0 {
+		a.musicMode = true
+		a.listSel = a.musicStart()
+		a.preset = doc.Music[0].Name
+		a.mparams = doc.Music[0].Params
+		normalizeMix(&a.mparams)
+		a.rebuild()
+	}
 }
 
 // saveFile writes the whole list to the current document, or asks for a path
@@ -354,7 +518,7 @@ func (a *app) saveFile() {
 		a.saveFileAs()
 		return
 	}
-	err := fx.Save(a.savePath, a.effects)
+	err := fx.Save(a.savePath, fx.Document{Effects: a.effects, Music: a.musics})
 	if err != nil {
 		a.err = err.Error()
 		return
@@ -382,7 +546,7 @@ func (a *app) saveFileAs() {
 	if !strings.HasSuffix(path, fx.Ext) {
 		path += fx.Ext
 	}
-	err := fx.Save(path, a.effects)
+	err := fx.Save(path, fx.Document{Effects: a.effects, Music: a.musics})
 	if err != nil {
 		a.err = err.Error()
 		return
@@ -414,13 +578,80 @@ func (a *app) waveRow() {
 			a.play()
 		}
 	}
+	a.viewToggles()
+}
+
+// moodRow is the music counterpart of waveRow: one line of mood toggles plus
+// the view modes.
+func (a *app) moodRow() {
+	for i, m := range moodOrder {
+		if i > 0 {
+			a.gui.SameLine()
+		}
+		if a.gui.Toggle(ui.ID("md."+m.label), m.label, a.mparams.Mood == m.mood) {
+			a.mparams.Mood = m.mood
+			a.rebuild()
+			a.play()
+		}
+	}
+	a.viewToggles()
+}
+
+// viewToggles appends the 3D/2D view switch to the current row.
+func (a *app) viewToggles() {
 	a.gui.SameLine()
 	if a.gui.Toggle("act.3d", "3D", a.view3D) {
 		a.view3D = true
 	}
 	a.gui.SameLine()
-	if a.gui.Toggle("act.wave", "wave", !a.view3D) {
+	if a.gui.Toggle("act.2d", "2D", !a.view3D) {
 		a.view3D = false
+	}
+}
+
+// musicSliderRows exposes the track parameters when a music entry is being
+// edited. Rendering happens on release (see Update), so dragging stays light.
+func (a *app) musicSliderRows() {
+	a.slider("Tempo", &a.mparams.Tempo, 60, 220, "%.0f")
+
+	bars := float64(a.mparams.Bars)
+	if a.slider("Bars", &bars, 4, 32, "%.0f") {
+		a.mparams.Bars = int(math.Round(bars))
+	}
+	seed := float64(a.mparams.Seed)
+	if a.slider("Seed", &seed, 0, 999, "%.0f") {
+		a.mparams.Seed = int64(math.Round(seed))
+	}
+	a.slider("Root", &a.mparams.Root, 55, 880, "%.0f")
+	a.slider("Gain", &a.mparams.Gain, 0, 1, "%.2f")
+	a.slider("Lead", &a.mparams.LeadVol, 0.05, 1.5, "%.2f")
+	a.slider("Bass", &a.mparams.BassVol, 0.05, 1.5, "%.2f")
+	a.slider("Drums", &a.mparams.DrumVol, 0.05, 1.5, "%.2f")
+	a.muteRow()
+}
+
+// muteRow lets each instrument be silenced alone — to hear which voice
+// misbehaves, or to ship a reduced arrangement (a track can sound better
+// without a voice; disabling one is a legitimate arrangement decision). A
+// lit toggle means the instrument is sounding.
+func (a *app) muteRow() {
+	for i, m := range muteOrder {
+		if i > 0 {
+			a.gui.SameLine()
+		}
+		on := a.mparams.Mute&m.bit == 0
+		if a.gui.Toggle(ui.ID("mu."+m.label), m.label, on) {
+			a.mparams.Mute ^= m.bit
+			// The mute set is part of the saved arrangement: flipping it on
+			// a selected track writes through to the entry, so Save — and
+			// the game regenerating from the document — honor it.
+			k := a.listSel - a.musicStart()
+			if k >= 0 && k < len(a.musics) {
+				a.musics[k].Params.Mute = a.mparams.Mute
+			}
+			a.rebuild()
+			a.play()
+		}
 	}
 }
 
@@ -463,9 +694,13 @@ func (a *app) slider(name string, v *float64, lo, hi float64, format string) boo
 }
 
 // rebuild re-renders the samples and the waterfall grid from the current
-// parameters.
+// parameters — the effect or the music track, whichever is being edited.
 func (a *app) rebuild() {
-	a.samples = a.params.Render(rate)
+	if a.musicMode {
+		a.samples = a.mparams.Render(rate)
+	} else {
+		a.samples = a.params.Render(rate)
+	}
 	a.spectrogram()
 }
 
@@ -531,23 +766,40 @@ func (a *app) Draw(screen *ebiten.Image) {
 	a.debugShot(screen)
 }
 
-// debugShot is a temporary diagnosis aid: with GION_SHOT set, frame 30 is
-// dumped to that path and the app exits.
-var shotFrame int
+// debugShot is a development aid: with GION_SHOT set, frame 30 is dumped to
+// that path and the app exits. With GION_SHOT_FRAMES=N it dumps a numbered
+// sequence instead (one frame every other tick, for README gifs) and exits
+// after the N-th.
+var (
+	shotFrame int
+	shotCount int
+)
 
 func (a *app) debugShot(screen *ebiten.Image) {
 	path := os.Getenv("GION_SHOT")
 	if path == "" {
 		return
 	}
+	frames := 1
+	n, err := strconv.Atoi(os.Getenv("GION_SHOT_FRAMES"))
+	if err == nil && n > 0 {
+		frames = n
+	}
 	shotFrame++
 	if shotFrame < 30 {
 		return
 	}
+	if (shotFrame-30)%2 != 0 {
+		return
+	}
+	out := path
+	if frames > 1 {
+		out = fmt.Sprintf("%s-%04d.png", strings.TrimSuffix(path, ".png"), shotCount)
+	}
 	img := image.NewRGBA(screen.Bounds())
 	screen.ReadPixels(img.Pix)
 	// #nosec G304 G703 -- debug-only, path from the developer's own env var.
-	f, err := os.Create(path)
+	f, err := os.Create(out)
 	if err != nil {
 		panic(err)
 	}
@@ -559,7 +811,10 @@ func (a *app) debugShot(screen *ebiten.Image) {
 	if err != nil {
 		panic(err)
 	}
-	os.Exit(0)
+	shotCount++
+	if shotCount >= frames {
+		os.Exit(0)
+	}
 }
 
 // drawWave paints the rendered samples as a min/max column per pixel, the
@@ -600,13 +855,17 @@ func (a *app) Layout(int, int) (int, int) {
 }
 
 func main() {
+	seed := newSeed()
 	a := &app{
 		actx:   audio.NewContext(rate),
 		preset: "pickup",
-		seed:   1,
-		params: gion.Pickup(1),
+		seed:   seed,
+		params: gion.Pickup(seed),
 		view3D: true,
 		pitch:  0.55,
+		// Explicit track defaults, so the music sliders show real values
+		// instead of "0 = mood default" and documents save what is heard.
+		mparams: music.Params{Seed: seed, Mood: music.Battle, Bars: 16, Root: 220, Gain: 0.6, LeadVol: 1, BassVol: 1, DrumVol: 1},
 	}
 	st := ui.DefaultStyle()
 	st.FieldW = sideW

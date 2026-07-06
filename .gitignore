@@ -33,3 +33,10 @@ go.work.sum
 
 # Working notes (durable knowledge lives in the wiki)
 TODO.md
+
+# Local listening batches
+listen/
+
+# Release script lives outside git (copied from kutta, repo-agnostic)
+release.sh
+dist/
