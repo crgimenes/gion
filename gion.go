@@ -111,7 +111,11 @@ func (p Params) Render(rate int) []int16 {
 		t := float64(i) * dt
 
 		freq += p.FreqSlide * dt
-		if p.FreqLimit > 0 && freq < p.FreqLimit {
+		// The limit is a downward cutoff, as documented: it only ends the
+		// sound when a falling slide crosses it. Checking it with a rising or
+		// flat slide used to kill the sound instantly whenever the limit sat
+		// above the start frequency.
+		if p.FreqLimit > 0 && p.FreqSlide < 0 && freq < p.FreqLimit {
 			break
 		}
 		if !arpDone && p.ArpMult != 0 && t >= p.ArpDelay {

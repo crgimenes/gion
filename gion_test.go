@@ -154,3 +154,21 @@ func TestMutateLeavesZeroFieldsOff(t *testing.T) {
 		}
 	}
 }
+
+func TestFreqLimitOnlyCutsDownwardSlides(t *testing.T) {
+	// A limit above the start frequency must not silence a rising or flat
+	// slide; it is a downward cutoff. This used to kill the sound at sample
+	// zero and blank the app's visualization.
+	up := Params{Wave: Square, Freq: 100, FreqSlide: 1000, FreqLimit: 500, Sustain: 0.2, Gain: 0.5}
+	if len(up.Render(DefaultRate)) == 0 {
+		t.Fatal("rising slide silenced by a higher limit")
+	}
+	flat := Params{Wave: Square, Freq: 100, FreqLimit: 500, Sustain: 0.2, Gain: 0.5}
+	if len(flat.Render(DefaultRate)) == 0 {
+		t.Fatal("flat slide silenced by a higher limit")
+	}
+	down := Params{Wave: Square, Freq: 100, FreqSlide: -1000, FreqLimit: 500, Sustain: 0.2, Gain: 0.5}
+	if len(down.Render(DefaultRate)) != 0 {
+		t.Fatal("a falling slide already under the limit should stop at once")
+	}
+}

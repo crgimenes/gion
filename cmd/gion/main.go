@@ -824,6 +824,7 @@ func (a *app) drawWave(screen *ebiten.Image, x, y, w, h float64) {
 	vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 1, st.Border, false)
 	n := len(a.samples)
 	if n == 0 {
+		a.drawEmptyNotice(screen)
 		return
 	}
 	mid := y + h/2

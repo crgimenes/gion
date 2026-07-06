@@ -8,6 +8,7 @@ import (
 	"github.com/crgimenes/gion"
 	ui "github.com/crgimenes/minigui"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -67,12 +68,23 @@ func (c cam) project(x, y, z float64) (float32, float32) {
 	return float32(c.cx + px*s*c.scale), float32(c.cyc - py*s*c.scale)
 }
 
+// drawEmptyNotice explains a blank panel: a silent parameter set is a state,
+// not a rendering failure.
+func (a *app) drawEmptyNotice(screen *ebiten.Image) {
+	msg := "sound is empty (0 samples)\ncheck durations and SlideStop"
+	ebitenutil.DebugPrintAt(screen, msg, int(vizX)+16, int(vizY+vizH/2)-16)
+}
+
 // drawWaterfall paints the spectrogram as a 3D relief: time recedes into the
 // screen, frequency runs across, amplitude rises. Slices are drawn far to
 // near, colored by intensity, with the playing slice highlighted.
 func (a *app) drawWaterfall(screen *ebiten.Image) {
 	st := a.gui.Style()
 	vector.StrokeRect(screen, vizX, vizY, vizW, vizH, 1, st.Border, false)
+	if len(a.samples) == 0 {
+		a.drawEmptyNotice(screen)
+		return
+	}
 	if len(a.spec) == 0 {
 		return
 	}
