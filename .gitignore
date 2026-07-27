@@ -40,3 +40,7 @@ listen/
 # Release script lives outside git (copied from kutta, repo-agnostic)
 release.sh
 dist/
+
+# Built by the Pages workflow, never committed (the module is 15 MB)
+/web/gion.wasm
+/web/wasm_exec.js

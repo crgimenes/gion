@@ -60,6 +60,10 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
+          # The browser demo builds from the same source, so a break shows up
+          # here instead of at deploy time.
+          - goos: js
+            goarch: wasm
 
     steps:
       - name: Checkout code

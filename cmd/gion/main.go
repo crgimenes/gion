@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
@@ -138,8 +139,11 @@ func (a *app) Update() error {
 		a.waveRow()
 		a.sliderRows()
 	}
+	// The status line carries both failures and instructions (the browser
+	// build points at drag-and-drop here), so the message speaks for itself
+	// instead of being labelled an error.
 	if a.err != "" {
-		a.gui.Label("error: " + a.err)
+		a.gui.Label(a.err)
 	}
 	a.gui.End()
 	a.updateViz(in)
@@ -205,10 +209,14 @@ func (a *app) sideColumn(in ui.Input) {
 	if a.side.Button("s.save", "Save") {
 		a.saveFile()
 	}
-	if a.side.Button("s.saveas", "Save As") {
-		a.saveFileAs()
+	// Save As picks a destination path, which a browser will not surrender, so
+	// the web build offers only Save and lets the browser file the download.
+	if !onWeb {
+		if a.side.Button("s.saveas", "Save As") {
+			a.saveFileAs()
+		}
+		a.side.SameLine()
 	}
-	a.side.SameLine()
 	if a.side.Button("s.clear", "Clear") {
 		a.clearList()
 	}
@@ -432,6 +440,13 @@ func (a *app) clearList() {
 // openFile loads an effects document chosen in the native dialog, replacing
 // the working list.
 func (a *app) openFile() {
+	if onWeb {
+		// A file input only opens inside a user gesture, and Ebitengine
+		// handles the click a frame later, which no longer counts as one.
+		// Dropping the file on the window is the path that works.
+		a.err = "drop a " + fx.Ext + " file on the window to open it"
+		return
+	}
 	var path string
 	ebiten.RunOnMainThread(func() {
 		path = filedialog.Open(filedialog.Options{
@@ -514,6 +529,15 @@ func (a *app) adoptDoc(doc fx.Document) {
 // saveFile writes the whole list to the current document, or asks for a path
 // on the first save.
 func (a *app) saveFile() {
+	if onWeb {
+		name := "effects" + fx.Ext
+		if a.savePath != "" {
+			name = filepath.Base(a.savePath)
+		}
+		offerDownload(name, []byte(fx.Format(fx.Document{Effects: a.effects, Music: a.musics})))
+		a.err = ""
+		return
+	}
 	if a.savePath == "" {
 		a.saveFileAs()
 		return
@@ -612,7 +636,13 @@ func (a *app) viewToggles() {
 // musicSliderRows exposes the track parameters when a music entry is being
 // edited. Rendering happens on release (see Update), so dragging stays light.
 func (a *app) musicSliderRows() {
-	a.slider("Tempo", &a.mparams.Tempo, 60, 220, "%.0f")
+	// A zero tempo hands the choice to the mood, which picks one per seed
+	// inside its own range. Printing 0 there reads as a broken value.
+	tempo := "auto"
+	if a.mparams.Tempo > 0 {
+		tempo = fmt.Sprintf("%.0f", a.mparams.Tempo)
+	}
+	a.sliderLabelled("Tempo", tempo, &a.mparams.Tempo, 60, 220)
 
 	bars := float64(a.mparams.Bars)
 	if a.slider("Bars", &bars, 4, 32, "%.0f") {
@@ -683,7 +713,13 @@ func (a *app) sliderRows() {
 // The trailing spaces clear the knob, which overhangs the track start by its
 // radius at the low end.
 func (a *app) slider(name string, v *float64, lo, hi float64, format string) bool {
-	a.gui.Label(fmt.Sprintf("%-10s %8s  ", name, fmt.Sprintf(format, *v)))
+	return a.sliderLabelled(name, fmt.Sprintf(format, *v), v, lo, hi)
+}
+
+// sliderLabelled is slider with the value text supplied by the caller, for a
+// field whose zero means something other than the number zero.
+func (a *app) sliderLabelled(name, value string, v *float64, lo, hi float64) bool {
+	a.gui.Label(fmt.Sprintf("%-10s %8s  ", name, value))
 	a.gui.SameLine()
 	changed := a.gui.Slider(ui.ID("sl."+name), v, lo, hi)
 	if changed {
@@ -718,8 +754,21 @@ func (a *app) play() {
 }
 
 // save asks for a path with the native dialog and writes the current sound.
+// In the browser there is no path to write to, so the WAV is handed over as a
+// download instead.
 func (a *app) save() {
 	name := fmt.Sprintf("%s-%d.wav", a.preset, a.seed)
+	if onWeb {
+		var buf bytes.Buffer
+		err := gion.WriteWAV(&buf, rate, a.samples)
+		if err != nil {
+			a.err = err.Error()
+			return
+		}
+		offerDownload(name, buf.Bytes())
+		a.err = ""
+		return
+	}
 	var path string
 	ebiten.RunOnMainThread(func() {
 		path = filedialog.Save(filedialog.Options{

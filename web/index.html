@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gion — 8-bit sound effects and chiptune music in your browser</title>
+<meta name="description" content="Sculpt 8-bit game sound effects and chiptune loops in the browser, then take the recipe home as a file your game regenerates at runtime.">
+
+<meta property="og:title" content="gion — 8-bit sounds and music for games">
+<meta property="og:description" content="Sculpt retro sound effects and chiptune loops in the browser, with a live 3D spectral view.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crgimenes.github.io/gion/">
+<meta property="og:image" content="https://crgimenes.github.io/gion/preview.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #06080c;
+  --panel: #0e1218;
+  --line: #1d2530;
+  --fg: #e6e8ec;
+  --dim: #9aa3af;
+  --accent: #45d7d7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2rem 1rem 3rem;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* Corner ribbon, drawn rather than fetched so the page keeps needing nothing
+   from the network. The wrapper is a square clipped to the corner; the link
+   inside is a wide band rotated across it. It scrolls away with the header
+   instead of sitting fixed, which would drift over the workbench. */
+.ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 120px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ribbon a {
+  position: absolute;
+  top: 27px;
+  left: -27px;
+  width: 176px;
+  padding: 6px 0;
+  transform: rotate(45deg);
+  background: var(--accent);
+  color: #04201f;
+  font: 600 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  letter-spacing: .01em;
+  text-align: center;
+  text-decoration: none;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+}
+.ribbon a:hover { background: #7ceded; }
+.ribbon a:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* The workbench wants 940 CSS pixels, its own logical width, so the browser
+   scales it by a whole number instead of a fractional one that softens every
+   glyph of the pixel font. Prose stays at a readable measure. */
+main { max-width: 940px; margin: 0 auto; }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+h2 { font-size: 1.1rem; margin: 2.5rem 0 .75rem; }
+.tagline { color: var(--dim); margin: 0 0 1.5rem; }
+a { color: var(--accent); }
+
+/* The workbench runs in an iframe so Ebitengine gets a window whose shape
+   matches the embed box; sizing its canvas inside a page element stretches the
+   render. The ratio is winW/winH from main.go, and a mismatch only costs
+   letterbox bars, so it degrades quietly if that layout changes. */
+#stage {
+  width: 100%;
+  aspect-ratio: 940 / 468;
+  /* An outline rather than a border: a border eats two pixels of the inner
+     width, which is enough to knock the scale off a whole number. */
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #06080c;
+}
+#stage iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.note { color: var(--dim); font-size: .9rem; margin: .75rem 0 0; }
+table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+th, td { text-align: left; padding: .4rem .75rem .4rem 0; border-bottom: 1px solid var(--line); }
+th { color: var(--dim); font-weight: 600; }
+kbd {
+  font: 600 .85em ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: .1em .4em;
+  white-space: nowrap;
+}
+code { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); }
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: .75rem 1rem;
+  overflow-x: auto;
+  font: .85rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: .9rem;
+}
+@media (max-width: 700px) {
+  /* On a narrow screen the ribbon crowds the heading and earns nothing, since
+     the footer already links to the repository. */
+  .ribbon { display: none; }
+}
+@media (max-width: 640px) {
+  body { padding: 1rem .75rem 2rem; }
+  h1 { font-size: 1.3rem; }
+}
+</style>
+</head>
+<body>
+<div class="ribbon"><a href="https://github.com/crgimenes/gion">Fork me on GitHub</a></div>
+<main>
+  <h1>gion</h1>
+  <p class="tagline">8-bit sound effects and chiptune music for games, running in the browser.</p>
+
+  <div id="stage">
+    <iframe src="play.html" title="gion sound workbench"></iframe>
+  </div>
+
+  <p class="note">
+    Click a preset in the list to hear it. <strong>Roll</strong> gives you
+    another sound from that family, <strong>Mutate</strong> nudges the one you
+    have, and the sliders reshape it while the 3D spectrum follows along. Sound
+    starts on your first click, which is the browser rule, not ours.
+  </p>
+  <p class="note">
+    Touch works, so a tablet in landscape is fine. A phone runs it too, at a
+    size that will not do you any favours.
+  </p>
+
+  <h2>Sound effects</h2>
+  <p>
+    Seven families to start from: pickup, laser, explosion, powerup, hit, jump,
+    blip. Every sound is fifteen numbers, so rolling a new one costs nothing and
+    a good one costs nothing to keep. Name it, press <strong>Add FX</strong>,
+    and it joins the list.
+  </p>
+
+  <h2>Music</h2>
+  <p>
+    Six moods write perfectly-looping chiptune: upbeat, heroic, dark, chill,
+    battle, boss. Each roll picks its own tempo, key, timbre, chord progression
+    and grooves. The mixer sets lead, bass and drums, and the switches under it
+    silence an instrument for good: a track often sounds better without its
+    lead, and that choice is saved with the track.
+  </p>
+
+  <h2>The 3D view</h2>
+  <p>
+    The panel on the right is a spectral waterfall: time recedes into the
+    screen, frequency runs across, amplitude rises. Drag it to spin. A laser
+    shows up as a crest sliding down the relief; an explosion is a mountain that
+    dissolves.
+  </p>
+
+  <h2>Files</h2>
+  <p>
+    A browser tab has no file dialog, so the two ends work differently here. To
+    load a set, <strong>drag a <code>.gion</code> file onto the workbench</strong>.
+    To keep what you made, press <strong>Save</strong> and the browser downloads
+    the document. There is no Save As, because the browser picks the
+    destination. <strong>Save WAV</strong> downloads the current sound as audio.
+  </p>
+
+  <h2>Using it in a game</h2>
+  <p>
+    The <code>.gion</code> file you download is the same file the library reads.
+    Nothing is baked: your game renders the audio from those numbers at startup
+    or on demand, so a whole soundtrack ships as a few hundred bytes of text.
+  </p>
+<pre>doc, err := effects.Load("sounds.gion")
+samples := doc.Effects[0].Params.Render(gion.DefaultRate)</pre>
+  <p class="note">
+    There is also <code>gion.Mutate</code>, which derives a sibling of a sound.
+    Mutate an explosion with a varying seed and repeated explosions stop
+    sounding identical, at no cost in assets.
+  </p>
+
+  <h2>The desktop version</h2>
+  <p>
+    This page is the whole workbench. The desktop build adds real open and save
+    dialogs, and it opens <code>.gion</code> files passed to it.
+    <a href="https://github.com/crgimenes/gion/releases/latest">Download a
+    build</a> for macOS, Windows or Linux, or on a Mac:
+  </p>
+<pre>brew install --cask crgimenes/tap/gion</pre>
+
+  <footer>
+    <p>
+      <a href="https://github.com/crgimenes/gion">Source</a> ·
+      <a href="https://github.com/crgimenes/gion/releases/latest">Releases</a> ·
+      MIT licensed · by <a href="https://crg.eti.br">crgimenes</a>
+    </p>
+  </footer>
+</main>
+</body>
+</html>

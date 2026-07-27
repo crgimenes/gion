@@ -15,6 +15,9 @@ game.
 Written with [Ebitengine](https://ebitengine.org). One executable, nothing to
 install alongside it.
 
+**[Try it in the browser](https://crgimenes.github.io/gion/)**: the whole
+workbench runs there, and what you make comes home as a file.
+
 ## The workbench
 
 Effects start from seven families: pickup, laser, explosion, powerup, hit,
