@@ -53,7 +53,6 @@ Grab a prebuilt binary from the
 | --- | --- |
 | macOS (Intel or Apple Silicon) | `gion-darwin-universal.zip` |
 | Windows (64-bit, most common) | `gion-windows-amd64.exe` |
-| Windows (older 32-bit) | `gion-windows-386.exe` |
 | Windows (ARM) | `gion-windows-arm64.exe` |
 | Linux (Intel/AMD 64-bit) | `gion-linux-amd64.gz` |
 | Linux (ARM 64-bit) | `gion-linux-arm64.gz` |
