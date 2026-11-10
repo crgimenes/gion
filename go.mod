@@ -3,8 +3,8 @@ module github.com/crgimenes/gion
 go 1.27.1
 
 require (
-	github.com/crgimenes/filo v0.1.1
-	github.com/crgimenes/minigui v0.1.14
+	github.com/crgimenes/filo v0.1.2
+	github.com/crgimenes/minigui v0.1.15
 	github.com/crgimenes/native v0.1.18
 	github.com/hajimehoshi/ebiten/v2 v2.10.6
 )
@@ -17,8 +17,8 @@ require (
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
-	golang.org/x/image v0.47.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/image v0.48.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )
