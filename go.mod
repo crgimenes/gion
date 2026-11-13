@@ -1,9 +1,9 @@
 module github.com/crgimenes/gion
 
-go 1.27.1
+go 1.27.4
 
 require (
-	github.com/crgimenes/filo v0.1.2
+	github.com/crgimenes/filo v0.1.3
 	github.com/crgimenes/minigui v0.1.15
 	github.com/crgimenes/native v0.1.18
 	github.com/hajimehoshi/ebiten/v2 v2.10.6
