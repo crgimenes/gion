@@ -1,4 +1,4 @@
-package gion
+package core
 
 import "math/rand/v2"
 
